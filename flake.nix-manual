@@ -1,0 +1,108 @@
+{
+  description = "Trader Workstation (TWS) package for Nix";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  };
+
+  outputs = { self, nixpkgs, ... }:
+  let
+    system = "x86_64-linux";
+    pkgs = import nixpkgs {
+      inherit system;
+      config.allowUnfree = true;
+      };
+  in {
+    packages.${system} = {
+      tws = pkgs.stdenv.mkDerivation rec {
+        pname = "ib-tws";
+        version = "10.36.1c"; # Adjust to the latest stable version
+
+        src = pkgs.fetchurl {
+          url = "https://download2.interactivebrokers.com/installers/tws/latest-standalone/tws-latest-standalone-linux-x64.sh";
+          sha256 = "sha256-i9umdEB/a04MKgWsROBGShiKtybxd8x5nD7pLrl2L+I=";
+        };
+
+        # Prevent default unpackPhase (not a tarball)
+        dontUnpack = true;
+
+        nativeBuildInputs = with pkgs; [
+          makeWrapper
+          unzip
+        ];
+
+        buildInputs = with pkgs; [
+          javaPackages.openjfx21
+          jdk21
+          glib
+          gtk3
+          libdrm
+        ];
+
+#         installPhase = ''
+#           runHook preInstall
+#
+#           # Extract TWS installer
+#           mkdir -p $out/lib/tws
+#           sh ${src} -q -dir $out/lib/tws
+#
+#           # Create wrapper script
+#           mkdir -p $out/bin
+#           makeWrapper $out/lib/tws/Jts/tws $out/bin/tws \
+#             --set JAVA_HOME ${pkgs.jdk21} \
+#             --prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath buildInputs}
+#
+#           runHook postInstall
+#         '';
+#
+#         meta = with pkgs.lib; {
+#           description = "Interactive Brokers Trader Workstation";
+#           homepage = "https://www.interactivebrokers.com";
+#           license = licenses.unfree;
+#           platforms = platforms.linux;
+#         };
+#       };
+#
+#       default = self.packages.${system}.tws;
+#     };
+#   };
+# }
+
+# Extract the installer manually
+        installPhase = ''
+          runHook preInstall
+
+          # Create output directories
+          mkdir -p $out/lib/tws $out/bin
+
+          # Extract the archive embedded in the .sh script
+          # TWS installer is a self-extracting archive with a binary payload
+          tail -n +$(grep -an "^ARCHIVE_START" ${src} | cut -d: -f1) ${src} > archive.zip
+          unzip -q archive.zip -d $out/lib/tws
+
+          # Ensure the TWS executable is present
+          if [ ! -f "$out/lib/tws/Jts/tws" ]; then
+            echo "Error: TWS executable not found in extracted files"
+            exit 1
+          fi
+
+          # Create wrapper script
+          makeWrapper $out/lib/tws/Jts/tws $out/bin/tws \
+            --set JAVA_HOME ${pkgs.jdk21} \
+            --prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath buildInputs}
+
+          runHook postInstall
+        '';
+
+        meta = with pkgs.lib; {
+          description = "Interactive Brokers Trader Workstation";
+          homepage = "https://www.interactivebrokers.com";
+          license = licenses.unfree;
+          platforms = platforms.linux;
+        };
+      };
+
+      default = self.packages.${system}.tws;
+    };
+  };
+}
